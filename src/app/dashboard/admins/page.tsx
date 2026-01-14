@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic';
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { UserCog, Plus, Mail, Shield, ShieldCheck, AlertCircle, Loader2, Check, X, Copy, Lock } from "lucide-react";
+import { UserCog, Plus, Mail, Shield, ShieldCheck, AlertCircle, Loader2, Check, X, Copy, Lock, Snowflake, Ban, Eye, Calendar, Activity } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 
@@ -16,6 +16,13 @@ interface Admin {
     is_active: boolean;
     must_change_password?: boolean;
     created_at: string;
+    frozen_at?: string | null;
+    revoked_at?: string | null;
+    frozen_by?: string | null;
+    revoked_by?: string | null;
+    last_login_at?: string | null;
+    issues_resolved_count?: number;
+    notes?: string | null;
 }
 
 interface CreatedCredentials {
@@ -38,6 +45,11 @@ export default function AdminsPage() {
     const [error, setError] = useState<string | null>(null);
     const [credentials, setCredentials] = useState<CreatedCredentials | null>(null);
     const [copied, setCopied] = useState(false);
+    const [selectedAdmin, setSelectedAdmin] = useState<Admin | null>(null);
+    const [showDetailModal, setShowDetailModal] = useState(false);
+    const [actionLoading, setActionLoading] = useState<string | null>(null);
+    const [showConfirmModal, setShowConfirmModal] = useState<{ type: 'freeze' | 'revoke'; admin: Admin } | null>(null);
+    const [filter, setFilter] = useState<'all' | 'active' | 'frozen' | 'revoked'>('all');
 
     useEffect(() => {
         checkAccessAndFetch();
@@ -151,6 +163,82 @@ export default function AdminsPage() {
         }
     };
 
+    const handleFreeze = async (admin: Admin) => {
+        setActionLoading(admin.id);
+        try {
+            const response = await fetch('/api/admins/freeze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    adminId: admin.id,
+                    freeze: !admin.frozen_at, // Toggle freeze status
+                }),
+            });
+
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.error || 'Failed to freeze admin');
+            }
+
+            fetchAdmins();
+            setShowConfirmModal(null);
+        } catch (err) {
+            console.error('Error freezing admin:', err);
+        } finally {
+            setActionLoading(null);
+        }
+    };
+
+    const handleRevoke = async (admin: Admin) => {
+        setActionLoading(admin.id);
+        try {
+            const response = await fetch('/api/admins/revoke', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ adminId: admin.id }),
+            });
+
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.error || 'Failed to revoke admin');
+            }
+
+            fetchAdmins();
+            setShowConfirmModal(null);
+        } catch (err) {
+            console.error('Error revoking admin:', err);
+        } finally {
+            setActionLoading(null);
+        }
+    };
+
+    const openAdminDetail = (admin: Admin) => {
+        setSelectedAdmin(admin);
+        setShowDetailModal(true);
+    };
+
+    const getAdminStatus = (admin: Admin): 'active' | 'frozen' | 'revoked' => {
+        if (admin.revoked_at) return 'revoked';
+        if (admin.frozen_at) return 'frozen';
+        return 'active';
+    };
+
+    const filteredAdmins = admins.filter(admin => {
+        if (filter === 'all') return true;
+        return getAdminStatus(admin) === filter;
+    });
+
+    const formatDate = (dateString: string | null | undefined) => {
+        if (!dateString) return 'Never';
+        return new Date(dateString).toLocaleDateString('en-IN', {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+        });
+    };
+
     if (loading) {
         return (
             <div className="flex items-center justify-center h-64">
@@ -176,67 +264,141 @@ export default function AdminsPage() {
                 </button>
             </div>
 
-            {/* Admins List */}
-            <div className="grid gap-4">
-                {admins.map((admin, index) => (
-                    <motion.div
-                        key={admin.id}
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: index * 0.05 }}
-                        className={`bg-zinc-900/50 border rounded-xl p-6 ${admin.is_active ? 'border-zinc-800' : 'border-red-500/20 opacity-60'
+            {/* Filter Tabs */}
+            <div className="flex gap-2 flex-wrap">
+                {(['all', 'active', 'frozen', 'revoked'] as const).map((tab) => (
+                    <button
+                        key={tab}
+                        onClick={() => setFilter(tab)}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium capitalize transition-colors ${filter === tab
+                            ? 'bg-amber-500 text-black'
+                            : 'bg-zinc-800 text-zinc-400 hover:text-white'
                             }`}
                     >
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-4">
-                                <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${admin.role === 'super_admin' ? 'bg-amber-500/10' : 'bg-blue-500/10'
-                                    }`}>
-                                    {admin.role === 'super_admin' ? (
-                                        <ShieldCheck className="w-6 h-6 text-amber-500" />
-                                    ) : (
-                                        <Shield className="w-6 h-6 text-blue-500" />
-                                    )}
-                                </div>
-                                <div>
-                                    <div className="flex items-center gap-2">
-                                        <h3 className="text-white font-medium">{admin.name}</h3>
-                                        {admin.must_change_password && (
-                                            <span className="px-2 py-0.5 text-xs bg-yellow-500/10 text-yellow-500 rounded">
-                                                Pending Password Change
-                                            </span>
+                        {tab}
+                        <span className="ml-2 px-2 py-0.5 rounded-full bg-black/20 text-xs">
+                            {admins.filter(a => tab === 'all' ? true : getAdminStatus(a) === tab).length}
+                        </span>
+                    </button>
+                ))}
+            </div>
+
+            {/* Admins List */}
+            <div className="grid gap-4">
+                {filteredAdmins.map((admin, index) => {
+                    const status = getAdminStatus(admin);
+                    return (
+                        <motion.div
+                            key={admin.id}
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: index * 0.05 }}
+                            className={`bg-zinc-900/50 border rounded-xl p-6 cursor-pointer hover:border-zinc-700 transition-colors ${status === 'revoked' ? 'border-red-500/30 opacity-60' :
+                                status === 'frozen' ? 'border-blue-500/30' :
+                                    'border-zinc-800'
+                                }`}
+                            onClick={() => openAdminDetail(admin)}
+                        >
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-4">
+                                    <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${status === 'revoked' ? 'bg-red-500/10' :
+                                        status === 'frozen' ? 'bg-blue-500/10' :
+                                            admin.role === 'super_admin' ? 'bg-amber-500/10' : 'bg-emerald-500/10'
+                                        }`}>
+                                        {status === 'revoked' ? (
+                                            <Ban className="w-6 h-6 text-red-500" />
+                                        ) : status === 'frozen' ? (
+                                            <Snowflake className="w-6 h-6 text-blue-500" />
+                                        ) : admin.role === 'super_admin' ? (
+                                            <ShieldCheck className="w-6 h-6 text-amber-500" />
+                                        ) : (
+                                            <Shield className="w-6 h-6 text-emerald-500" />
                                         )}
                                     </div>
-                                    <div className="flex items-center gap-2 text-zinc-500 text-sm">
-                                        <Mail className="w-4 h-4" />
-                                        <span>{admin.email}</span>
+                                    <div>
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <h3 className="text-white font-medium">{admin.name}</h3>
+                                            {status === 'frozen' && (
+                                                <span className="px-2 py-0.5 text-xs bg-blue-500/10 text-blue-400 rounded">
+                                                    Frozen
+                                                </span>
+                                            )}
+                                            {status === 'revoked' && (
+                                                <span className="px-2 py-0.5 text-xs bg-red-500/10 text-red-400 rounded">
+                                                    Revoked
+                                                </span>
+                                            )}
+                                            {admin.must_change_password && status === 'active' && (
+                                                <span className="px-2 py-0.5 text-xs bg-yellow-500/10 text-yellow-500 rounded">
+                                                    Pending Password
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="flex items-center gap-4 text-zinc-500 text-sm mt-1">
+                                            <div className="flex items-center gap-1">
+                                                <Mail className="w-4 h-4" />
+                                                <span>{admin.email}</span>
+                                            </div>
+                                            {admin.issues_resolved_count !== undefined && admin.issues_resolved_count > 0 && (
+                                                <div className="flex items-center gap-1">
+                                                    <Activity className="w-4 h-4" />
+                                                    <span>{admin.issues_resolved_count} issues</span>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
 
-                            <div className="flex items-center gap-4">
-                                <span className={`px-3 py-1 text-xs font-medium rounded-full ${admin.role === 'super_admin'
+                                <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
+                                    <span className={`px-3 py-1 text-xs font-medium rounded-full ${admin.role === 'super_admin'
                                         ? 'bg-amber-500/10 text-amber-500'
-                                        : 'bg-blue-500/10 text-blue-500'
-                                    }`}>
-                                    {admin.role === 'super_admin' ? 'Super Admin' : 'Admin'}
-                                </span>
+                                        : 'bg-emerald-500/10 text-emerald-500'
+                                        }`}>
+                                        {admin.role === 'super_admin' ? 'Super Admin' : 'Admin'}
+                                    </span>
 
-                                {admin.role !== 'super_admin' && (
+                                    {admin.role !== 'super_admin' && !admin.revoked_at && (
+                                        <>
+                                            <button
+                                                onClick={() => setShowConfirmModal({ type: 'freeze', admin })}
+                                                disabled={actionLoading === admin.id}
+                                                className={`p-2 rounded-lg transition-colors ${admin.frozen_at
+                                                    ? 'bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20'
+                                                    : 'bg-blue-500/10 text-blue-500 hover:bg-blue-500/20'
+                                                    }`}
+                                                title={admin.frozen_at ? 'Unfreeze account' : 'Freeze account'}
+                                            >
+                                                <Snowflake className="w-5 h-5" />
+                                            </button>
+                                            <button
+                                                onClick={() => setShowConfirmModal({ type: 'revoke', admin })}
+                                                disabled={actionLoading === admin.id}
+                                                className="p-2 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors"
+                                                title="Revoke account permanently"
+                                            >
+                                                <Ban className="w-5 h-5" />
+                                            </button>
+                                        </>
+                                    )}
+
                                     <button
-                                        onClick={() => toggleAdminStatus(admin)}
-                                        className={`p-2 rounded-lg transition-colors ${admin.is_active
-                                                ? 'bg-red-500/10 text-red-500 hover:bg-red-500/20'
-                                                : 'bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20'
-                                            }`}
-                                        title={admin.is_active ? 'Deactivate' : 'Activate'}
+                                        onClick={() => openAdminDetail(admin)}
+                                        className="p-2 rounded-lg bg-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-700 transition-colors"
+                                        title="View details"
                                     >
-                                        {admin.is_active ? <X className="w-5 h-5" /> : <Check className="w-5 h-5" />}
+                                        <Eye className="w-5 h-5" />
                                     </button>
-                                )}
+                                </div>
                             </div>
-                        </div>
-                    </motion.div>
-                ))}
+                        </motion.div>
+                    );
+                })}
+
+                {filteredAdmins.length === 0 && (
+                    <div className="text-center py-12 text-zinc-500">
+                        No admins found with the selected filter.
+                    </div>
+                )}
             </div>
 
             {/* Add Admin Modal */}
@@ -414,6 +576,234 @@ export default function AdminsPage() {
                                         Done
                                     </button>
                                 </div>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* Confirmation Modal */}
+            <AnimatePresence>
+                {showConfirmModal && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        onClick={() => setShowConfirmModal(null)}
+                        className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
+                    >
+                        <motion.div
+                            initial={{ scale: 0.95, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.95, opacity: 0 }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="bg-zinc-900 border border-zinc-800 rounded-xl w-full max-w-md p-6"
+                        >
+                            <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6 ${showConfirmModal.type === 'revoke' ? 'bg-red-500/20' : 'bg-blue-500/20'
+                                }`}>
+                                {showConfirmModal.type === 'revoke' ? (
+                                    <Ban className="w-8 h-8 text-red-500" />
+                                ) : showConfirmModal.admin.frozen_at ? (
+                                    <Check className="w-8 h-8 text-emerald-500" />
+                                ) : (
+                                    <Snowflake className="w-8 h-8 text-blue-500" />
+                                )}
+                            </div>
+
+                            <h2 className="text-xl font-semibold text-white text-center mb-2">
+                                {showConfirmModal.type === 'revoke'
+                                    ? 'Revoke Admin Account?'
+                                    : showConfirmModal.admin.frozen_at
+                                        ? 'Unfreeze Admin Account?'
+                                        : 'Freeze Admin Account?'}
+                            </h2>
+
+                            <p className="text-zinc-400 text-center mb-6">
+                                {showConfirmModal.type === 'revoke'
+                                    ? `This will permanently revoke ${showConfirmModal.admin.name}'s access. This action cannot be undone.`
+                                    : showConfirmModal.admin.frozen_at
+                                        ? `This will restore ${showConfirmModal.admin.name}'s access to the admin portal.`
+                                        : `This will temporarily suspend ${showConfirmModal.admin.name}'s access. You can unfreeze later.`}
+                            </p>
+
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={() => setShowConfirmModal(null)}
+                                    className="flex-1 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={() => showConfirmModal.type === 'revoke'
+                                        ? handleRevoke(showConfirmModal.admin)
+                                        : handleFreeze(showConfirmModal.admin)}
+                                    disabled={actionLoading === showConfirmModal.admin.id}
+                                    className={`flex-1 px-4 py-3 font-medium rounded-lg transition-colors flex items-center justify-center gap-2 ${showConfirmModal.type === 'revoke'
+                                            ? 'bg-red-500 text-white hover:bg-red-600'
+                                            : showConfirmModal.admin.frozen_at
+                                                ? 'bg-emerald-500 text-black hover:bg-emerald-400'
+                                                : 'bg-blue-500 text-white hover:bg-blue-600'
+                                        }`}
+                                >
+                                    {actionLoading === showConfirmModal.admin.id ? (
+                                        <Loader2 className="w-5 h-5 animate-spin" />
+                                    ) : showConfirmModal.type === 'revoke' ? (
+                                        'Revoke'
+                                    ) : showConfirmModal.admin.frozen_at ? (
+                                        'Unfreeze'
+                                    ) : (
+                                        'Freeze'
+                                    )}
+                                </button>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* Admin Detail Modal */}
+            <AnimatePresence>
+                {showDetailModal && selectedAdmin && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        onClick={() => setShowDetailModal(false)}
+                        className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
+                    >
+                        <motion.div
+                            initial={{ scale: 0.95, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.95, opacity: 0 }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="bg-zinc-900 border border-zinc-800 rounded-xl w-full max-w-lg"
+                        >
+                            {/* Header */}
+                            <div className="p-6 border-b border-zinc-800">
+                                <div className="flex items-center gap-4">
+                                    <div className={`w-16 h-16 rounded-xl flex items-center justify-center ${getAdminStatus(selectedAdmin) === 'revoked' ? 'bg-red-500/20' :
+                                            getAdminStatus(selectedAdmin) === 'frozen' ? 'bg-blue-500/20' :
+                                                selectedAdmin.role === 'super_admin' ? 'bg-amber-500/20' : 'bg-emerald-500/20'
+                                        }`}>
+                                        {getAdminStatus(selectedAdmin) === 'revoked' ? (
+                                            <Ban className="w-8 h-8 text-red-500" />
+                                        ) : getAdminStatus(selectedAdmin) === 'frozen' ? (
+                                            <Snowflake className="w-8 h-8 text-blue-500" />
+                                        ) : selectedAdmin.role === 'super_admin' ? (
+                                            <ShieldCheck className="w-8 h-8 text-amber-500" />
+                                        ) : (
+                                            <Shield className="w-8 h-8 text-emerald-500" />
+                                        )}
+                                    </div>
+                                    <div>
+                                        <h2 className="text-xl font-semibold text-white">{selectedAdmin.name}</h2>
+                                        <p className="text-zinc-400">{selectedAdmin.email}</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Details */}
+                            <div className="p-6 space-y-4">
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <p className="text-xs uppercase tracking-widest text-zinc-500 mb-1">Role</p>
+                                        <span className={`px-3 py-1 text-sm font-medium rounded-full ${selectedAdmin.role === 'super_admin'
+                                                ? 'bg-amber-500/10 text-amber-500'
+                                                : 'bg-emerald-500/10 text-emerald-500'
+                                            }`}>
+                                            {selectedAdmin.role === 'super_admin' ? 'Super Admin' : 'Admin'}
+                                        </span>
+                                    </div>
+                                    <div>
+                                        <p className="text-xs uppercase tracking-widest text-zinc-500 mb-1">Status</p>
+                                        <span className={`px-3 py-1 text-sm font-medium rounded-full ${getAdminStatus(selectedAdmin) === 'revoked' ? 'bg-red-500/10 text-red-500' :
+                                                getAdminStatus(selectedAdmin) === 'frozen' ? 'bg-blue-500/10 text-blue-500' :
+                                                    'bg-emerald-500/10 text-emerald-500'
+                                            }`}>
+                                            {getAdminStatus(selectedAdmin).charAt(0).toUpperCase() + getAdminStatus(selectedAdmin).slice(1)}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <p className="text-xs uppercase tracking-widest text-zinc-500 mb-1">Created</p>
+                                        <div className="flex items-center gap-2 text-white">
+                                            <Calendar className="w-4 h-4 text-zinc-500" />
+                                            <span>{formatDate(selectedAdmin.created_at)}</span>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <p className="text-xs uppercase tracking-widest text-zinc-500 mb-1">Last Login</p>
+                                        <div className="flex items-center gap-2 text-white">
+                                            <Calendar className="w-4 h-4 text-zinc-500" />
+                                            <span>{formatDate(selectedAdmin.last_login_at)}</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <p className="text-xs uppercase tracking-widest text-zinc-500 mb-1">Issues Resolved</p>
+                                    <div className="flex items-center gap-2 text-white">
+                                        <Activity className="w-4 h-4 text-zinc-500" />
+                                        <span className="text-2xl font-semibold">{selectedAdmin.issues_resolved_count || 0}</span>
+                                    </div>
+                                </div>
+
+                                {selectedAdmin.frozen_at && (
+                                    <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
+                                        <p className="text-blue-400 text-sm">
+                                            <Snowflake className="w-4 h-4 inline mr-2" />
+                                            Frozen on {formatDate(selectedAdmin.frozen_at)}
+                                        </p>
+                                    </div>
+                                )}
+
+                                {selectedAdmin.revoked_at && (
+                                    <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4">
+                                        <p className="text-red-400 text-sm">
+                                            <Ban className="w-4 h-4 inline mr-2" />
+                                            Revoked on {formatDate(selectedAdmin.revoked_at)}
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Actions */}
+                            <div className="p-6 border-t border-zinc-800 flex gap-3">
+                                <button
+                                    onClick={() => setShowDetailModal(false)}
+                                    className="flex-1 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-colors"
+                                >
+                                    Close
+                                </button>
+                                {selectedAdmin.role !== 'super_admin' && !selectedAdmin.revoked_at && (
+                                    <>
+                                        <button
+                                            onClick={() => {
+                                                setShowDetailModal(false);
+                                                setShowConfirmModal({ type: 'freeze', admin: selectedAdmin });
+                                            }}
+                                            className={`px-4 py-3 rounded-lg transition-colors flex items-center gap-2 ${selectedAdmin.frozen_at
+                                                    ? 'bg-emerald-500 text-black hover:bg-emerald-400'
+                                                    : 'bg-blue-500 text-white hover:bg-blue-600'
+                                                }`}
+                                        >
+                                            <Snowflake className="w-5 h-5" />
+                                            {selectedAdmin.frozen_at ? 'Unfreeze' : 'Freeze'}
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                setShowDetailModal(false);
+                                                setShowConfirmModal({ type: 'revoke', admin: selectedAdmin });
+                                            }}
+                                            className="px-4 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors flex items-center gap-2"
+                                        >
+                                            <Ban className="w-5 h-5" />
+                                            Revoke
+                                        </button>
+                                    </>
+                                )}
                             </div>
                         </motion.div>
                     </motion.div>
