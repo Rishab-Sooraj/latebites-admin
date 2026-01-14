@@ -41,11 +41,11 @@ export default function ChangePasswordPage() {
                 return;
             }
 
-            // Check if admin exists and needs password change
+            // Check if admin exists and needs password change (case-insensitive)
             const { data: adminData } = await supabase
                 .from('admins')
                 .select('name, must_change_password')
-                .eq('email', user.email)
+                .ilike('email', user.email!)
                 .single();
 
             if (!adminData) {

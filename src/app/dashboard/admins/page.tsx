@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic';
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { UserCog, Plus, Mail, Shield, ShieldCheck, AlertCircle, Loader2, Check, X, Copy, Lock, Snowflake, Ban, Eye, Calendar, Activity } from "lucide-react";
+import { UserCog, Plus, Mail, Shield, ShieldCheck, AlertCircle, Loader2, Check, X, Copy, Lock, Snowflake, Ban, Eye, Calendar, Activity, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 
@@ -48,7 +48,7 @@ export default function AdminsPage() {
     const [selectedAdmin, setSelectedAdmin] = useState<Admin | null>(null);
     const [showDetailModal, setShowDetailModal] = useState(false);
     const [actionLoading, setActionLoading] = useState<string | null>(null);
-    const [showConfirmModal, setShowConfirmModal] = useState<{ type: 'freeze' | 'revoke'; admin: Admin } | null>(null);
+    const [showConfirmModal, setShowConfirmModal] = useState<{ type: 'freeze' | 'revoke' | 'delete'; admin: Admin } | null>(null);
     const [filter, setFilter] = useState<'all' | 'active' | 'frozen' | 'revoked'>('all');
 
     useEffect(() => {
@@ -63,11 +63,11 @@ export default function AdminsPage() {
                 return;
             }
 
-            // Check if current user is super_admin
+            // Check if current user is super_admin (case-insensitive)
             const { data: adminData } = await supabase
                 .from('admins')
                 .select('*')
-                .eq('email', user.email)
+                .ilike('email', user.email!)
                 .single();
 
             if (!adminData || adminData.role !== 'super_admin') {
@@ -207,6 +207,30 @@ export default function AdminsPage() {
             setShowConfirmModal(null);
         } catch (err) {
             console.error('Error revoking admin:', err);
+        } finally {
+            setActionLoading(null);
+        }
+    };
+
+    const handleDelete = async (admin: Admin) => {
+        setActionLoading(admin.id);
+        try {
+            const response = await fetch('/api/admins/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ adminId: admin.id }),
+            });
+
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.error || 'Failed to delete admin');
+            }
+
+            fetchAdmins();
+            setShowConfirmModal(null);
+            setShowDetailModal(false);
+        } catch (err) {
+            console.error('Error deleting admin:', err);
         } finally {
             setActionLoading(null);
         }
@@ -373,10 +397,18 @@ export default function AdminsPage() {
                                             <button
                                                 onClick={() => setShowConfirmModal({ type: 'revoke', admin })}
                                                 disabled={actionLoading === admin.id}
-                                                className="p-2 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors"
+                                                className="p-2 rounded-lg bg-orange-500/10 text-orange-500 hover:bg-orange-500/20 transition-colors"
                                                 title="Revoke account permanently"
                                             >
                                                 <Ban className="w-5 h-5" />
+                                            </button>
+                                            <button
+                                                onClick={() => setShowConfirmModal({ type: 'delete', admin })}
+                                                disabled={actionLoading === admin.id}
+                                                className="p-2 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors"
+                                                title="Delete account"
+                                            >
+                                                <Trash2 className="w-5 h-5" />
                                             </button>
                                         </>
                                     )}
@@ -599,9 +631,12 @@ export default function AdminsPage() {
                             onClick={(e) => e.stopPropagation()}
                             className="bg-zinc-900 border border-zinc-800 rounded-xl w-full max-w-md p-6"
                         >
-                            <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6 ${showConfirmModal.type === 'revoke' ? 'bg-red-500/20' : 'bg-blue-500/20'
+                            <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6 ${showConfirmModal.type === 'delete' ? 'bg-red-500/20' :
+                                showConfirmModal.type === 'revoke' ? 'bg-red-500/20' : 'bg-blue-500/20'
                                 }`}>
-                                {showConfirmModal.type === 'revoke' ? (
+                                {showConfirmModal.type === 'delete' ? (
+                                    <Trash2 className="w-8 h-8 text-red-500" />
+                                ) : showConfirmModal.type === 'revoke' ? (
                                     <Ban className="w-8 h-8 text-red-500" />
                                 ) : showConfirmModal.admin.frozen_at ? (
                                     <Check className="w-8 h-8 text-emerald-500" />
@@ -611,19 +646,23 @@ export default function AdminsPage() {
                             </div>
 
                             <h2 className="text-xl font-semibold text-white text-center mb-2">
-                                {showConfirmModal.type === 'revoke'
-                                    ? 'Revoke Admin Account?'
-                                    : showConfirmModal.admin.frozen_at
-                                        ? 'Unfreeze Admin Account?'
-                                        : 'Freeze Admin Account?'}
+                                {showConfirmModal.type === 'delete'
+                                    ? 'Delete Admin Account?'
+                                    : showConfirmModal.type === 'revoke'
+                                        ? 'Revoke Admin Account?'
+                                        : showConfirmModal.admin.frozen_at
+                                            ? 'Unfreeze Admin Account?'
+                                            : 'Freeze Admin Account?'}
                             </h2>
 
                             <p className="text-zinc-400 text-center mb-6">
-                                {showConfirmModal.type === 'revoke'
-                                    ? `This will permanently revoke ${showConfirmModal.admin.name}'s access. This action cannot be undone.`
-                                    : showConfirmModal.admin.frozen_at
-                                        ? `This will restore ${showConfirmModal.admin.name}'s access to the admin portal.`
-                                        : `This will temporarily suspend ${showConfirmModal.admin.name}'s access. You can unfreeze later.`}
+                                {showConfirmModal.type === 'delete'
+                                    ? `This will permanently DELETE ${showConfirmModal.admin.name}'s account and all their data. This action cannot be undone!`
+                                    : showConfirmModal.type === 'revoke'
+                                        ? `This will permanently revoke ${showConfirmModal.admin.name}'s access. This action cannot be undone.`
+                                        : showConfirmModal.admin.frozen_at
+                                            ? `This will restore ${showConfirmModal.admin.name}'s access to the admin portal.`
+                                            : `This will temporarily suspend ${showConfirmModal.admin.name}'s access. You can unfreeze later.`}
                             </p>
 
                             <div className="flex gap-3">
@@ -634,19 +673,24 @@ export default function AdminsPage() {
                                     Cancel
                                 </button>
                                 <button
-                                    onClick={() => showConfirmModal.type === 'revoke'
-                                        ? handleRevoke(showConfirmModal.admin)
-                                        : handleFreeze(showConfirmModal.admin)}
+                                    onClick={() =>
+                                        showConfirmModal.type === 'delete'
+                                            ? handleDelete(showConfirmModal.admin)
+                                            : showConfirmModal.type === 'revoke'
+                                                ? handleRevoke(showConfirmModal.admin)
+                                                : handleFreeze(showConfirmModal.admin)}
                                     disabled={actionLoading === showConfirmModal.admin.id}
-                                    className={`flex-1 px-4 py-3 font-medium rounded-lg transition-colors flex items-center justify-center gap-2 ${showConfirmModal.type === 'revoke'
-                                            ? 'bg-red-500 text-white hover:bg-red-600'
-                                            : showConfirmModal.admin.frozen_at
-                                                ? 'bg-emerald-500 text-black hover:bg-emerald-400'
-                                                : 'bg-blue-500 text-white hover:bg-blue-600'
+                                    className={`flex-1 px-4 py-3 font-medium rounded-lg transition-colors flex items-center justify-center gap-2 ${showConfirmModal.type === 'delete' || showConfirmModal.type === 'revoke'
+                                        ? 'bg-red-500 text-white hover:bg-red-600'
+                                        : showConfirmModal.admin.frozen_at
+                                            ? 'bg-emerald-500 text-black hover:bg-emerald-400'
+                                            : 'bg-blue-500 text-white hover:bg-blue-600'
                                         }`}
                                 >
                                     {actionLoading === showConfirmModal.admin.id ? (
                                         <Loader2 className="w-5 h-5 animate-spin" />
+                                    ) : showConfirmModal.type === 'delete' ? (
+                                        'Delete'
                                     ) : showConfirmModal.type === 'revoke' ? (
                                         'Revoke'
                                     ) : showConfirmModal.admin.frozen_at ? (
@@ -682,8 +726,8 @@ export default function AdminsPage() {
                             <div className="p-6 border-b border-zinc-800">
                                 <div className="flex items-center gap-4">
                                     <div className={`w-16 h-16 rounded-xl flex items-center justify-center ${getAdminStatus(selectedAdmin) === 'revoked' ? 'bg-red-500/20' :
-                                            getAdminStatus(selectedAdmin) === 'frozen' ? 'bg-blue-500/20' :
-                                                selectedAdmin.role === 'super_admin' ? 'bg-amber-500/20' : 'bg-emerald-500/20'
+                                        getAdminStatus(selectedAdmin) === 'frozen' ? 'bg-blue-500/20' :
+                                            selectedAdmin.role === 'super_admin' ? 'bg-amber-500/20' : 'bg-emerald-500/20'
                                         }`}>
                                         {getAdminStatus(selectedAdmin) === 'revoked' ? (
                                             <Ban className="w-8 h-8 text-red-500" />
@@ -708,8 +752,8 @@ export default function AdminsPage() {
                                     <div>
                                         <p className="text-xs uppercase tracking-widest text-zinc-500 mb-1">Role</p>
                                         <span className={`px-3 py-1 text-sm font-medium rounded-full ${selectedAdmin.role === 'super_admin'
-                                                ? 'bg-amber-500/10 text-amber-500'
-                                                : 'bg-emerald-500/10 text-emerald-500'
+                                            ? 'bg-amber-500/10 text-amber-500'
+                                            : 'bg-emerald-500/10 text-emerald-500'
                                             }`}>
                                             {selectedAdmin.role === 'super_admin' ? 'Super Admin' : 'Admin'}
                                         </span>
@@ -717,8 +761,8 @@ export default function AdminsPage() {
                                     <div>
                                         <p className="text-xs uppercase tracking-widest text-zinc-500 mb-1">Status</p>
                                         <span className={`px-3 py-1 text-sm font-medium rounded-full ${getAdminStatus(selectedAdmin) === 'revoked' ? 'bg-red-500/10 text-red-500' :
-                                                getAdminStatus(selectedAdmin) === 'frozen' ? 'bg-blue-500/10 text-blue-500' :
-                                                    'bg-emerald-500/10 text-emerald-500'
+                                            getAdminStatus(selectedAdmin) === 'frozen' ? 'bg-blue-500/10 text-blue-500' :
+                                                'bg-emerald-500/10 text-emerald-500'
                                             }`}>
                                             {getAdminStatus(selectedAdmin).charAt(0).toUpperCase() + getAdminStatus(selectedAdmin).slice(1)}
                                         </span>
@@ -785,8 +829,8 @@ export default function AdminsPage() {
                                                 setShowConfirmModal({ type: 'freeze', admin: selectedAdmin });
                                             }}
                                             className={`px-4 py-3 rounded-lg transition-colors flex items-center gap-2 ${selectedAdmin.frozen_at
-                                                    ? 'bg-emerald-500 text-black hover:bg-emerald-400'
-                                                    : 'bg-blue-500 text-white hover:bg-blue-600'
+                                                ? 'bg-emerald-500 text-black hover:bg-emerald-400'
+                                                : 'bg-blue-500 text-white hover:bg-blue-600'
                                                 }`}
                                         >
                                             <Snowflake className="w-5 h-5" />

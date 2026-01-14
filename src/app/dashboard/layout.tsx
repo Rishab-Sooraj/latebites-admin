@@ -159,7 +159,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             const { data: adminData } = await supabase
                 .from('admins')
                 .select('*')
-                .eq('email', user.email)
+                .ilike('email', user.email!)
                 .eq('is_active', true)
                 .single();
 

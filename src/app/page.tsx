@@ -28,17 +28,28 @@ export default function AdminLoginPage() {
 
       if (authError) throw authError;
 
-      // Check if user is an admin
+      // Check if user is an admin (case-insensitive email match)
       const { data: adminData, error: adminError } = await supabase
         .from('admins')
         .select('*')
-        .eq('email', email)
+        .ilike('email', email)
         .eq('is_active', true)
         .single();
 
       if (adminError || !adminData) {
         await supabase.auth.signOut();
         throw new Error('Access denied. Admin privileges required.');
+      }
+
+      // Check if admin is frozen or revoked
+      if (adminData.frozen_at) {
+        await supabase.auth.signOut();
+        throw new Error('Your account has been frozen. Contact a super admin.');
+      }
+
+      if (adminData.revoked_at) {
+        await supabase.auth.signOut();
+        throw new Error('Your account has been revoked.');
       }
 
       // Check if admin needs to change password

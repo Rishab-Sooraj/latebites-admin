@@ -28,7 +28,7 @@ export async function POST(request: Request) {
         const { data: currentAdmin } = await supabase
             .from('admins')
             .select('id, role')
-            .eq('email', user.email)
+            .ilike('email', user.email!)
             .single();
 
         if (!currentAdmin || currentAdmin.role !== 'super_admin') {

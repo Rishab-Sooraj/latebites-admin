@@ -35,7 +35,7 @@ export async function POST(request: Request) {
         const { data: adminData } = await supabase
             .from('admins')
             .select('id, email')
-            .eq('email', user.email)
+            .ilike('email', user.email!)
             .single();
 
         if (!adminData) {
@@ -75,25 +75,22 @@ export async function POST(request: Request) {
             );
         }
 
-        // Update must_change_password flag using raw SQL via admin client (bypasses RLS completely)
-        const { error: dbError } = await adminClient.rpc('update_admin_password_flag', {
-            admin_email: user.email,
-            new_flag_value: false
-        });
+        // Update must_change_password flag using admin client (bypasses RLS)
+        // Use direct update with case-insensitive email matching
+        const { error: dbError } = await adminClient
+            .from('admins')
+            .update({
+                must_change_password: false,
+                updated_at: new Date().toISOString()
+            })
+            .ilike('email', user.email!);
 
-        // If RPC doesn't exist, try direct update as fallback
-        if (dbError && dbError.message.includes('does not exist')) {
-            console.log('RPC not found, using direct update...');
-            const { error: directError } = await adminClient
-                .from('admins')
-                .update({ must_change_password: false })
-                .eq('email', user.email);
-
-            if (directError) {
-                console.error('Direct update also failed:', directError);
-            }
-        } else if (dbError) {
+        if (dbError) {
             console.error('DB update error:', dbError);
+            // Even if flag update fails, password was changed successfully
+            // Just log the error
+        } else {
+            console.log('Successfully updated must_change_password flag to false for:', user.email);
         }
 
         // Re-authenticate the user with the new password to maintain session
