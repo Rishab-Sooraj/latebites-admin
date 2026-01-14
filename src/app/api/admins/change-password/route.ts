@@ -96,6 +96,23 @@ export async function POST(request: Request) {
             console.error('DB update error:', dbError);
         }
 
+        // Re-authenticate the user with the new password to maintain session
+        const { error: reAuthError } = await supabase.auth.signInWithPassword({
+            email: user.email,
+            password: newPassword,
+        });
+
+        if (reAuthError) {
+            console.error('Re-authentication error:', reAuthError);
+            // Password was changed but session refresh failed
+            // User will need to log in again manually
+            return NextResponse.json({
+                success: true,
+                message: 'Password changed successfully. Please log in again.',
+                requiresLogin: true,
+            });
+        }
+
         return NextResponse.json({
             success: true,
             message: 'Password changed successfully',
