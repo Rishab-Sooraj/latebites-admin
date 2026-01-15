@@ -20,7 +20,8 @@ import {
     Hash,
     AlertCircle,
     Loader2,
-    Package
+    Package,
+    ClipboardList
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -48,6 +49,7 @@ const getNavItems = (role: string) => {
     const baseItems = [
         { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
         { href: '/dashboard/restaurants', icon: Store, label: 'Restaurants' },
+        { href: '/dashboard/onboarding', icon: ClipboardList, label: 'Onboarding' },
         { href: '/dashboard/customers', icon: Users, label: 'Customers' },
     ];
 
@@ -58,6 +60,7 @@ const getNavItems = (role: string) => {
 
     return baseItems;
 };
+
 
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
     const router = useRouter();

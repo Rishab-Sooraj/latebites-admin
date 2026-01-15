@@ -15,12 +15,12 @@ interface LocationPickerProps {
     initialAddress?: string;
 }
 
-// Coimbatore bounding box (approximate)
+// Coimbatore district bounding box (full district coverage)
 const COIMBATORE_BOUNDS = {
-    north: 11.15,
-    south: 10.85,
-    east: 77.15,
-    west: 76.85,
+    north: 11.15,   // Above Thudiyalur/Saravanampatti
+    south: 10.90,   // Below Malumichampatti
+    east: 77.20,    // Past airport/Irugur
+    west: 76.80,    // Past Kovai Kondattam
 };
 
 declare global {
@@ -168,8 +168,13 @@ export default function LocationPicker({ onLocationSelect, initialAddress }: Loc
                         }
                     });
 
-                    // Verify city is Coimbatore
-                    if (city.toLowerCase() !== 'coimbatore') {
+                    // Verify city is Coimbatore (check if address contains coimbatore)
+                    const fullAddress = place.formatted_address?.toLowerCase() || '';
+                    const isCoimbatoreArea = city.toLowerCase().includes('coimbatore') ||
+                        fullAddress.includes('coimbatore') ||
+                        description.toLowerCase().includes('coimbatore');
+
+                    if (!isCoimbatoreArea) {
                         setError("Only addresses within Coimbatore city are allowed.");
                         setIsValid(false);
                         onLocationSelect(null);
@@ -209,10 +214,10 @@ export default function LocationPicker({ onLocationSelect, initialAddress }: Loc
                         placeholder={mapsLoaded ? "Search for restaurant in Coimbatore..." : "Loading Google Maps..."}
                         disabled={!mapsLoaded}
                         className={`w-full pl-12 pr-10 py-4 bg-zinc-800/50 border rounded-lg text-white placeholder-zinc-600 focus:outline-none transition-colors disabled:opacity-50 ${isValid
-                                ? 'border-emerald-500 bg-emerald-500/5'
-                                : error
-                                    ? 'border-red-500 bg-red-500/5'
-                                    : 'border-zinc-700 focus:border-amber-500/50'
+                            ? 'border-emerald-500 bg-emerald-500/5'
+                            : error
+                                ? 'border-red-500 bg-red-500/5'
+                                : 'border-zinc-700 focus:border-amber-500/50'
                             }`}
                     />
                     {loading && (

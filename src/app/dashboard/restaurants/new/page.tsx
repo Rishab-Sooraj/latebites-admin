@@ -1,11 +1,24 @@
 "use client";
 
-import { useState } from "react";
-import { motion } from "framer-motion";
+import { useState, useEffect, useRef } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
-import { Store, Mail, Phone, User, Lock, Copy, Check, ArrowLeft, Loader2, AlertCircle, MapPin } from "lucide-react";
+import { Store, Mail, Phone, Copy, Check, ArrowLeft, Loader2, AlertCircle, MapPin, CheckCircle, Key, Upload, Image as ImageIcon, X, FileCheck } from "lucide-react";
 import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
 import LocationPicker from "@/components/LocationPicker";
+
+interface ApprovedRestaurant {
+    id: string;
+    restaurant_name: string;
+    contact_person: string;
+    email: string;
+    phone_number: string;
+    city: string;
+    status: string;
+    created_at: string;
+    credentials_created?: boolean;
+}
 
 interface CreatedCredentials {
     email: string;
@@ -22,103 +35,162 @@ interface LocationData {
     longitude: number;
 }
 
-// Validation helpers
-const isValidName = (name: string) => name.length >= 2;
-const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-const isValidPhone = (phone: string) => /^[+]?[\d\s-]{10,}$/.test(phone);
+interface VerificationState {
+    menuImage: File | null;
+    menuImagePreview: string | null;
+    location: LocationData | null;
+    locationConfirmed: boolean;
+    qualityChecked: boolean;
+    explanationProvided: boolean;
+}
 
 export default function NewRestaurantPage() {
     const router = useRouter();
+    const supabase = createClient();
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const [formData, setFormData] = useState({
-        restaurantName: "",
-        ownerName: "",
-        email: "",
-        phone: "",
-    });
-    const [location, setLocation] = useState<LocationData | null>(null);
-    const [loading, setLoading] = useState(false);
+    const [approvedRestaurants, setApprovedRestaurants] = useState<ApprovedRestaurant[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [selectedRestaurant, setSelectedRestaurant] = useState<ApprovedRestaurant | null>(null);
+    const [creating, setCreating] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [credentials, setCredentials] = useState<CreatedCredentials | null>(null);
     const [copied, setCopied] = useState(false);
 
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: value }));
-    };
+    // Verification state
+    const [verification, setVerification] = useState<VerificationState>({
+        menuImage: null,
+        menuImagePreview: null,
+        location: null,
+        locationConfirmed: false,
+        qualityChecked: false,
+        explanationProvided: false,
+    });
 
-    const handleLocationSelect = (locationData: LocationData | null) => {
-        setLocation(locationData);
-    };
+    useEffect(() => {
+        fetchApprovedRestaurants();
+    }, []);
 
-    // Get validation state for each field
-    const getFieldValidation = (field: string) => {
-        switch (field) {
-            case 'restaurantName':
-                return isValidName(formData.restaurantName);
-            case 'ownerName':
-                return isValidName(formData.ownerName);
-            case 'email':
-                return isValidEmail(formData.email);
-            case 'phone':
-                return isValidPhone(formData.phone);
-            default:
-                return false;
+    const fetchApprovedRestaurants = async () => {
+        try {
+            const { data, error } = await supabase
+                .from('Resturant Onboarding')
+                .select('*')
+                .eq('status', 'approved')
+                .order('created_at', { ascending: false });
+
+            if (error) throw error;
+
+            // Filter out ones that already have credentials
+            const withoutCredentials = (data || []).filter(r => !r.credentials_created);
+            setApprovedRestaurants(withoutCredentials);
+        } catch (error) {
+            console.error('Error fetching approved restaurants:', error);
+        } finally {
+            setLoading(false);
         }
     };
 
-    // Get input class based on validation
-    const getInputClass = (field: string) => {
-        const value = formData[field as keyof typeof formData];
-        const isValid = getFieldValidation(field);
+    const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            if (file.size > 5 * 1024 * 1024) {
+                setError('Image size must be less than 5MB');
+                return;
+            }
 
-        if (!value) {
-            return 'border-zinc-700 focus:border-amber-500/50';
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                setVerification(prev => ({
+                    ...prev,
+                    menuImage: file,
+                    menuImagePreview: reader.result as string,
+                }));
+            };
+            reader.readAsDataURL(file);
         }
-
-        return isValid
-            ? 'border-emerald-500 bg-emerald-500/5'
-            : 'border-zinc-700 focus:border-amber-500/50';
     };
 
-    // Get icon class based on validation
-    const getIconClass = (field: string) => {
-        const value = formData[field as keyof typeof formData];
-        const isValid = getFieldValidation(field);
-
-        return value && isValid ? 'text-emerald-500' : 'text-zinc-500';
+    const removeImage = () => {
+        setVerification(prev => ({
+            ...prev,
+            menuImage: null,
+            menuImagePreview: null,
+        }));
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+        }
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const handleLocationSelect = (location: LocationData | null) => {
+        setVerification(prev => ({
+            ...prev,
+            location,
+            locationConfirmed: location !== null,
+        }));
+    };
 
-        if (!location) {
-            setError('Please select a restaurant location in Coimbatore');
-            return;
-        }
+    const isVerificationComplete = () => {
+        return (
+            verification.menuImage !== null &&
+            verification.location !== null &&
+            verification.locationConfirmed &&
+            verification.qualityChecked &&
+            verification.explanationProvided
+        );
+    };
 
-        setLoading(true);
+    const handleCreateCredentials = async () => {
+        if (!selectedRestaurant || !isVerificationComplete()) return;
+
+        setCreating(true);
         setError(null);
 
         try {
+            // First upload the menu image if present
+            let menuImageUrl = null;
+            if (verification.menuImage) {
+                const fileName = `menu_${selectedRestaurant.id}_${Date.now()}.${verification.menuImage.name.split('.').pop()}`;
+                const { data: uploadData, error: uploadError } = await supabase.storage
+                    .from('restaurant-menus')
+                    .upload(fileName, verification.menuImage);
+
+                if (uploadError) {
+                    console.error('Upload error:', uploadError);
+                    setError(`Menu upload failed: ${uploadError.message}. Continuing without image.`);
+                } else {
+                    const { data: urlData } = supabase.storage
+                        .from('restaurant-menus')
+                        .getPublicUrl(fileName);
+                    menuImageUrl = urlData?.publicUrl;
+                    console.log('Menu image URL:', menuImageUrl);
+                }
+            }
+
             const response = await fetch('/api/restaurants/create', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    ...formData,
-                    address: location.address,
-                    city: location.city,
-                    state: location.state,
-                    pincode: location.pincode,
-                    latitude: location.latitude,
-                    longitude: location.longitude,
+                    onboardingId: selectedRestaurant.id,
+                    restaurantName: selectedRestaurant.restaurant_name,
+                    ownerName: selectedRestaurant.contact_person,
+                    email: selectedRestaurant.email,
+                    phone: selectedRestaurant.phone_number,
+                    city: selectedRestaurant.city,
+                    menuImageUrl,
+                    location: verification.location,
+                    verification: {
+                        locationConfirmed: verification.locationConfirmed,
+                        qualityChecked: verification.qualityChecked,
+                        explanationProvided: verification.explanationProvided,
+                    },
                 }),
             });
 
             const data = await response.json();
 
             if (!response.ok) {
-                throw new Error(data.error || 'Failed to create restaurant');
+                throw new Error(data.error || 'Failed to create credentials');
             }
 
             setCredentials({
@@ -126,11 +198,14 @@ export default function NewRestaurantPage() {
                 password: data.temporaryPassword,
                 restaurantName: data.restaurantName,
             });
+
+            // Refresh the list
+            await fetchApprovedRestaurants();
         } catch (err: unknown) {
             const errorMessage = err instanceof Error ? err.message : 'An error occurred';
             setError(errorMessage);
         } finally {
-            setLoading(false);
+            setCreating(false);
         }
     };
 
@@ -141,6 +216,20 @@ export default function NewRestaurantPage() {
         navigator.clipboard.writeText(text);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
+    };
+
+    const resetAndSelectAnother = () => {
+        setCredentials(null);
+        setSelectedRestaurant(null);
+        setError(null);
+        setVerification({
+            menuImage: null,
+            menuImagePreview: null,
+            location: null,
+            locationConfirmed: false,
+            qualityChecked: false,
+            explanationProvided: false,
+        });
     };
 
     // Success state - show credentials
@@ -155,7 +244,7 @@ export default function NewRestaurantPage() {
                     <div className="w-16 h-16 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
                         <Check className="w-8 h-8 text-emerald-500" />
                     </div>
-                    <h2 className="text-2xl font-serif text-white mb-2">Restaurant Created!</h2>
+                    <h2 className="text-2xl font-serif text-white mb-2">Credentials Created!</h2>
                     <p className="text-zinc-400 mb-8">Share these credentials with the restaurant owner</p>
 
                     <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-6 text-left mb-6">
@@ -183,20 +272,27 @@ export default function NewRestaurantPage() {
                             {copied ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
                             {copied ? 'Copied!' : 'Copy Credentials'}
                         </button>
-                        <Link
-                            href="/dashboard/restaurants"
+                        <button
+                            onClick={resetAndSelectAnother}
                             className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-amber-500 text-black font-medium rounded-lg hover:bg-amber-400 transition-colors"
                         >
-                            View All Restaurants
-                        </Link>
+                            Create Another
+                        </button>
                     </div>
+
+                    <Link
+                        href="/dashboard/restaurants"
+                        className="inline-block mt-4 text-zinc-400 hover:text-white text-sm"
+                    >
+                        ← Back to Restaurants
+                    </Link>
                 </motion.div>
             </div>
         );
     }
 
     return (
-        <div className="max-w-2xl mx-auto">
+        <div className="max-w-4xl mx-auto pb-32">
             {/* Header */}
             <div className="mb-8">
                 <Link
@@ -206,151 +302,263 @@ export default function NewRestaurantPage() {
                     <ArrowLeft className="w-4 h-4" />
                     Back to Restaurants
                 </Link>
-                <h1 className="text-3xl font-serif text-white">Add New Restaurant</h1>
-                <p className="text-zinc-500 mt-1">Create login credentials for a new restaurant partner in Coimbatore</p>
+                <h1 className="text-3xl font-serif text-white">Add Restaurant</h1>
+                <p className="text-zinc-500 mt-1">Complete verification to generate login credentials</p>
             </div>
 
-            {/* Form */}
-            <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-8"
-            >
-                <form onSubmit={handleSubmit} className="space-y-6">
-                    {error && (
-                        <div className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
-                            <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
-                            <p className="text-red-400 text-sm">{error}</p>
-                        </div>
-                    )}
+            {/* Error Display */}
+            {error && (
+                <div className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/20 rounded-lg mb-6">
+                    <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+                    <p className="text-red-400 text-sm">{error}</p>
+                </div>
+            )}
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="space-y-2">
-                            <label className="text-xs uppercase tracking-widest text-zinc-500">Restaurant Name</label>
-                            <div className="relative">
-                                <Store className={`absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 ${getIconClass('restaurantName')}`} />
-                                <input
-                                    type="text"
-                                    name="restaurantName"
-                                    value={formData.restaurantName}
-                                    onChange={handleChange}
-                                    placeholder="Spice Garden"
-                                    required
-                                    className={`w-full pl-12 pr-10 py-4 bg-zinc-800/50 border rounded-lg text-white placeholder-zinc-600 focus:outline-none transition-colors ${getInputClass('restaurantName')}`}
-                                />
-                                {getFieldValidation('restaurantName') && (
-                                    <Check className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-emerald-500" />
-                                )}
+            {/* Step 1: Select Restaurant */}
+            <div className="mb-8">
+                <h2 className="text-lg font-medium text-white mb-4">1. Select Restaurant</h2>
+                {loading ? (
+                    <div className="space-y-4">
+                        {[1, 2].map((i) => (
+                            <div key={i} className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6 animate-pulse">
+                                <div className="h-6 w-1/3 bg-zinc-800 rounded mb-2" />
+                                <div className="h-4 w-1/2 bg-zinc-800 rounded" />
                             </div>
-                        </div>
-
-                        <div className="space-y-2">
-                            <label className="text-xs uppercase tracking-widest text-zinc-500">Owner Name</label>
-                            <div className="relative">
-                                <User className={`absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 ${getIconClass('ownerName')}`} />
-                                <input
-                                    type="text"
-                                    name="ownerName"
-                                    value={formData.ownerName}
-                                    onChange={handleChange}
-                                    placeholder="Rajan Kumar"
-                                    required
-                                    className={`w-full pl-12 pr-10 py-4 bg-zinc-800/50 border rounded-lg text-white placeholder-zinc-600 focus:outline-none transition-colors ${getInputClass('ownerName')}`}
-                                />
-                                {getFieldValidation('ownerName') && (
-                                    <Check className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-emerald-500" />
-                                )}
-                            </div>
-                        </div>
-
-                        <div className="space-y-2">
-                            <label className="text-xs uppercase tracking-widest text-zinc-500">Email</label>
-                            <div className="relative">
-                                <Mail className={`absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 ${getIconClass('email')}`} />
-                                <input
-                                    type="email"
-                                    name="email"
-                                    value={formData.email}
-                                    onChange={handleChange}
-                                    placeholder="restaurant@example.com"
-                                    required
-                                    className={`w-full pl-12 pr-10 py-4 bg-zinc-800/50 border rounded-lg text-white placeholder-zinc-600 focus:outline-none transition-colors ${getInputClass('email')}`}
-                                />
-                                {getFieldValidation('email') && (
-                                    <Check className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-emerald-500" />
-                                )}
-                            </div>
-                        </div>
-
-                        <div className="space-y-2">
-                            <label className="text-xs uppercase tracking-widest text-zinc-500">Phone</label>
-                            <div className="relative">
-                                <Phone className={`absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 ${getIconClass('phone')}`} />
-                                <input
-                                    type="tel"
-                                    name="phone"
-                                    value={formData.phone}
-                                    onChange={handleChange}
-                                    placeholder="+91 9876543210"
-                                    required
-                                    className={`w-full pl-12 pr-10 py-4 bg-zinc-800/50 border rounded-lg text-white placeholder-zinc-600 focus:outline-none transition-colors ${getInputClass('phone')}`}
-                                />
-                                {getFieldValidation('phone') && (
-                                    <Check className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-emerald-500" />
-                                )}
-                            </div>
-                        </div>
+                        ))}
                     </div>
+                ) : approvedRestaurants.length > 0 ? (
+                    <div className="space-y-3">
+                        {approvedRestaurants.map((restaurant) => (
+                            <motion.div
+                                key={restaurant.id}
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                className={`bg-zinc-900/50 border rounded-xl p-4 cursor-pointer transition-all ${selectedRestaurant?.id === restaurant.id
+                                    ? 'border-amber-500 ring-1 ring-amber-500/20'
+                                    : 'border-zinc-800 hover:border-zinc-700'
+                                    }`}
+                                onClick={() => {
+                                    setSelectedRestaurant(restaurant);
+                                    setVerification({
+                                        menuImage: null,
+                                        menuImagePreview: null,
+                                        location: null,
+                                        locationConfirmed: false,
+                                        qualityChecked: false,
+                                        explanationProvided: false,
+                                    });
+                                }}
+                            >
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 bg-emerald-500/10 rounded-lg flex items-center justify-center">
+                                            <Store className="w-5 h-5 text-emerald-500" />
+                                        </div>
+                                        <div>
+                                            <h3 className="font-medium text-white">{restaurant.restaurant_name}</h3>
+                                            <p className="text-sm text-zinc-500">{restaurant.contact_person} • {restaurant.city}</p>
+                                        </div>
+                                    </div>
+                                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${selectedRestaurant?.id === restaurant.id
+                                        ? 'border-amber-500 bg-amber-500'
+                                        : 'border-zinc-600'
+                                        }`}>
+                                        {selectedRestaurant?.id === restaurant.id && (
+                                            <Check className="w-3 h-3 text-black" />
+                                        )}
+                                    </div>
+                                </div>
+                            </motion.div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-8 text-center">
+                        <Store className="w-10 h-10 text-zinc-700 mx-auto mb-3" />
+                        <p className="text-zinc-400">No approved restaurants waiting for credentials</p>
+                        <Link href="/dashboard/onboarding" className="text-amber-500 hover:text-amber-400 text-sm mt-2 inline-block">
+                            Go to Onboarding →
+                        </Link>
+                    </div>
+                )}
+            </div>
 
-                    {/* Location Picker */}
-                    <div className="pt-2">
-                        <LocationPicker onLocationSelect={handleLocationSelect} />
+            {/* Verification Section - Only show when restaurant is selected */}
+            <AnimatePresence>
+                {selectedRestaurant && (
+                    <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="space-y-6"
+                    >
+                        {/* Step 2: Upload Menu Image */}
+                        <div>
+                            <h2 className="text-lg font-medium text-white mb-4">2. Upload Menu Image</h2>
+                            <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
+                                {verification.menuImagePreview ? (
+                                    <div className="relative">
+                                        <img
+                                            src={verification.menuImagePreview}
+                                            alt="Menu preview"
+                                            className="w-full max-h-64 object-contain rounded-lg"
+                                        />
+                                        <button
+                                            onClick={removeImage}
+                                            className="absolute top-2 right-2 p-2 bg-red-500/80 rounded-full hover:bg-red-500 transition-colors"
+                                        >
+                                            <X className="w-4 h-4 text-white" />
+                                        </button>
+                                        <div className="mt-3 flex items-center gap-2 text-emerald-500 text-sm">
+                                            <CheckCircle className="w-4 h-4" />
+                                            Menu image uploaded
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <label className="flex flex-col items-center justify-center cursor-pointer py-8 border-2 border-dashed border-zinc-700 rounded-lg hover:border-zinc-600 transition-colors">
+                                        <Upload className="w-10 h-10 text-zinc-500 mb-3" />
+                                        <p className="text-white font-medium">Upload Menu Image</p>
+                                        <p className="text-zinc-500 text-sm mt-1">PNG, JPG up to 5MB</p>
+                                        <input
+                                            ref={fileInputRef}
+                                            type="file"
+                                            accept="image/*"
+                                            onChange={handleImageUpload}
+                                            className="hidden"
+                                        />
+                                    </label>
+                                )}
+                            </div>
+                        </div>
 
-                        {/* Selected Location Display */}
-                        {location && (
-                            <div className="mt-4 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
-                                <div className="flex items-start gap-3">
-                                    <MapPin className="w-5 h-5 text-emerald-500 flex-shrink-0 mt-0.5" />
+                        {/* Step 3: Select Location */}
+                        <div>
+                            <h2 className="text-lg font-medium text-white mb-4">3. Set Restaurant Location</h2>
+                            <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
+                                <LocationPicker onLocationSelect={handleLocationSelect} />
+
+                                {verification.location && (
+                                    <div className="mt-4 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+                                        <div className="flex items-start gap-3">
+                                            <MapPin className="w-5 h-5 text-emerald-500 flex-shrink-0 mt-0.5" />
+                                            <div>
+                                                <p className="text-emerald-500 font-medium text-sm">✓ Location Set (Coimbatore)</p>
+                                                <p className="text-zinc-300 text-sm mt-1">{verification.location.address}</p>
+                                                <p className="text-zinc-500 text-xs mt-1">
+                                                    {verification.location.city}, {verification.location.state} - {verification.location.pincode}
+                                                </p>
+                                                <p className="text-zinc-600 text-xs mt-1">
+                                                    Lat: {verification.location.latitude.toFixed(6)}, Lng: {verification.location.longitude.toFixed(6)}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Step 4: Verification Checklist */}
+                        <div>
+                            <h2 className="text-lg font-medium text-white mb-4">4. Verification Checklist</h2>
+                            <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6 space-y-4">
+                                {/* Location Confirmation is auto-checked when location is selected */}
+                                <div className={`flex items-start gap-4 p-4 rounded-lg ${verification.location ? 'bg-emerald-500/10' : 'bg-zinc-800/50'}`}>
+                                    <div className={`w-5 h-5 mt-0.5 rounded border-2 flex items-center justify-center ${verification.location ? 'border-emerald-500 bg-emerald-500' : 'border-zinc-600'}`}>
+                                        {verification.location && <Check className="w-3 h-3 text-white" />}
+                                    </div>
                                     <div>
-                                        <p className="text-emerald-500 font-medium text-sm">✓ Location Selected (Coimbatore)</p>
-                                        <p className="text-zinc-300 text-sm mt-1">{location.address}</p>
-                                        <p className="text-zinc-500 text-xs mt-1">
-                                            {location.city}, {location.state} - {location.pincode}
+                                        <p className="text-white font-medium flex items-center gap-2">
+                                            <MapPin className="w-4 h-4 text-amber-500" />
+                                            Location Confirmed
+                                        </p>
+                                        <p className="text-zinc-400 text-sm mt-1">
+                                            {verification.location ? 'Restaurant location verified in Coimbatore' : 'Select location above to confirm'}
                                         </p>
                                     </div>
                                 </div>
-                            </div>
-                        )}
-                    </div>
 
-                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-4">
-                        <div className="flex items-start gap-3">
-                            <Lock className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
-                            <div>
-                                <p className="text-amber-500 font-medium text-sm">Temporary Password</p>
-                                <p className="text-zinc-400 text-sm mt-1">
-                                    A secure temporary password will be auto-generated. The restaurant will be required to change it on first login.
-                                </p>
+                                {/* Quality Check */}
+                                <label className="flex items-start gap-4 p-4 bg-zinc-800/50 rounded-lg cursor-pointer hover:bg-zinc-800/70 transition-colors">
+                                    <input
+                                        type="checkbox"
+                                        checked={verification.qualityChecked}
+                                        onChange={(e) => setVerification(prev => ({ ...prev, qualityChecked: e.target.checked }))}
+                                        className="w-5 h-5 mt-0.5 rounded border-zinc-600 bg-zinc-700 text-amber-500 focus:ring-amber-500 focus:ring-offset-zinc-900"
+                                    />
+                                    <div>
+                                        <p className="text-white font-medium flex items-center gap-2">
+                                            <CheckCircle className="w-4 h-4 text-emerald-500" />
+                                            Quality Check
+                                        </p>
+                                        <p className="text-zinc-400 text-sm mt-1">
+                                            I confirm that the restaurant meets our quality standards for food safety and hygiene.
+                                        </p>
+                                    </div>
+                                </label>
+
+                                {/* Explanation Provided */}
+                                <label className="flex items-start gap-4 p-4 bg-zinc-800/50 rounded-lg cursor-pointer hover:bg-zinc-800/70 transition-colors">
+                                    <input
+                                        type="checkbox"
+                                        checked={verification.explanationProvided}
+                                        onChange={(e) => setVerification(prev => ({ ...prev, explanationProvided: e.target.checked }))}
+                                        className="w-5 h-5 mt-0.5 rounded border-zinc-600 bg-zinc-700 text-amber-500 focus:ring-amber-500 focus:ring-offset-zinc-900"
+                                    />
+                                    <div>
+                                        <p className="text-white font-medium flex items-center gap-2">
+                                            <FileCheck className="w-4 h-4 text-blue-500" />
+                                            Terms Explained
+                                        </p>
+                                        <p className="text-zinc-400 text-sm mt-1">
+                                            I confirm that I have explained how Latebites works to the restaurant owner.
+                                        </p>
+                                    </div>
+                                </label>
                             </div>
                         </div>
-                    </div>
 
-                    <button
-                        type="submit"
-                        disabled={loading || !location}
-                        className="w-full py-4 bg-amber-500 text-black font-medium uppercase tracking-widest text-sm rounded-lg hover:bg-amber-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                    >
-                        {loading ? (
-                            <>
-                                <Loader2 className="w-5 h-5 animate-spin" />
-                                Creating Account...
-                            </>
-                        ) : (
-                            'Create Restaurant Account'
-                        )}
-                    </button>
-                </form>
-            </motion.div>
+                        {/* Generate Button */}
+                        <div className="fixed bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-zinc-950 via-zinc-950 to-transparent">
+                            <div className="max-w-4xl mx-auto">
+                                <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <p className="text-white font-medium">{selectedRestaurant.restaurant_name}</p>
+                                            <div className="flex items-center gap-3 mt-1">
+                                                {verification.menuImage && <span className="text-emerald-500 text-xs">✓ Menu</span>}
+                                                {verification.location && <span className="text-emerald-500 text-xs">✓ Location</span>}
+                                                {verification.qualityChecked && <span className="text-emerald-500 text-xs">✓ Quality</span>}
+                                                {verification.explanationProvided && <span className="text-emerald-500 text-xs">✓ Terms</span>}
+                                            </div>
+                                        </div>
+                                        <button
+                                            onClick={handleCreateCredentials}
+                                            disabled={creating || !isVerificationComplete()}
+                                            className="flex items-center gap-2 px-6 py-3 bg-amber-500 text-black font-medium rounded-lg hover:bg-amber-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            {creating ? (
+                                                <>
+                                                    <Loader2 className="w-5 h-5 animate-spin" />
+                                                    Creating...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Key className="w-5 h-5" />
+                                                    Generate Credentials
+                                                </>
+                                            )}
+                                        </button>
+                                    </div>
+                                    {!isVerificationComplete() && (
+                                        <p className="text-amber-500/70 text-xs mt-3">
+                                            Complete all verification steps to generate credentials
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </div>
     );
 }
