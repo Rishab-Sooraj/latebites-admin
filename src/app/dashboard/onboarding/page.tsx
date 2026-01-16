@@ -26,21 +26,25 @@ export default function OnboardingPage() {
     const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
     const [selectedRestaurant, setSelectedRestaurant] = useState<OnboardingRestaurant | null>(null);
     const [actionLoading, setActionLoading] = useState<string | null>(null);
+    const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
 
     useEffect(() => {
         fetchRestaurants();
     }, []);
 
+    useEffect(() => {
+        if (toast) {
+            const timer = setTimeout(() => setToast(null), 5000);
+            return () => clearTimeout(timer);
+        }
+    }, [toast]);
+
     const fetchRestaurants = async () => {
         try {
-            console.log('Fetching from Restaurant Onboarding...');
             const { data, error } = await supabase
                 .from('Resturant Onboarding')
                 .select('*')
                 .order('created_at', { ascending: false });
-
-            console.log('Data:', data);
-            console.log('Error:', error);
 
             if (error) throw error;
             setRestaurants(data || []);
@@ -63,15 +67,25 @@ export default function OnboardingPage() {
             const data = await response.json();
 
             if (!response.ok) {
-                alert(`Error: ${data.error || 'Failed to update status'}`);
+                setToast({ message: data.error || 'Failed to update status', type: 'error' });
                 return;
+            }
+
+            if (newStatus === 'approved') {
+                if (data.emailSent) {
+                    setToast({ message: 'Restaurant approved and notified via email! 📧', type: 'success' });
+                } else {
+                    setToast({ message: 'Restaurant approved, but email notification failed. ⚠️', type: 'warning' });
+                }
+            } else {
+                setToast({ message: 'Restaurant rejected.', type: 'success' });
             }
 
             await fetchRestaurants();
             setSelectedRestaurant(null);
         } catch (error) {
             console.error('Error updating status:', error);
-            alert('Failed to update status. Please try again.');
+            setToast({ message: 'Failed to update status. Please try again.', type: 'error' });
         } finally {
             setActionLoading(null);
         }
@@ -105,7 +119,27 @@ export default function OnboardingPage() {
     const rejectedCount = restaurants.filter(r => r.status === 'rejected').length;
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-6 relative">
+            {/* Toast Notification */}
+            <AnimatePresence>
+                {toast && (
+                    <motion.div
+                        initial={{ opacity: 0, y: -20, x: '-50%' }}
+                        animate={{ opacity: 1, y: 0, x: '-50%' }}
+                        exit={{ opacity: 0, y: -20, x: '-50%' }}
+                        className={`fixed top-6 left-1/2 z-[100] px-6 py-3 rounded-full shadow-lg border backdrop-blur-md flex items-center gap-3 font-medium whitespace-nowrap
+                        ${toast.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' :
+                                toast.type === 'warning' ? 'bg-amber-500/10 border-amber-500/20 text-amber-500' :
+                                    'bg-red-500/10 border-red-500/20 text-red-500'}`}
+                    >
+                        {toast.type === 'success' ? <CheckCircle className="w-5 h-5" /> :
+                            toast.type === 'warning' ? <Store className="w-5 h-5" /> :
+                                <XCircle className="w-5 h-5" />}
+                        {toast.message}
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
             {/* Header */}
             <div>
                 <h1 className="text-3xl font-serif text-white">Restaurant Onboarding</h1>

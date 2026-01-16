@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
-import { Store, Mail, Phone, Copy, Check, ArrowLeft, Loader2, AlertCircle, MapPin, CheckCircle, Key, Upload, Image as ImageIcon, X, FileCheck } from "lucide-react";
+import { Store, Mail, Phone, Copy, Check, ArrowLeft, Loader2, AlertCircle, MapPin, CheckCircle, Key, Upload, Image as ImageIcon, X, FileCheck, XCircle } from "lucide-react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import LocationPicker from "@/components/LocationPicker";
@@ -56,6 +56,7 @@ export default function NewRestaurantPage() {
     const [error, setError] = useState<string | null>(null);
     const [credentials, setCredentials] = useState<CreatedCredentials | null>(null);
     const [copied, setCopied] = useState(false);
+    const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
 
     // Verification state
     const [verification, setVerification] = useState<VerificationState>({
@@ -66,6 +67,13 @@ export default function NewRestaurantPage() {
         qualityChecked: false,
         explanationProvided: false,
     });
+
+    useEffect(() => {
+        if (toast) {
+            const timer = setTimeout(() => setToast(null), 5000);
+            return () => clearTimeout(timer);
+        }
+    }, [toast]);
 
     useEffect(() => {
         fetchApprovedRestaurants();
@@ -95,7 +103,7 @@ export default function NewRestaurantPage() {
         const file = e.target.files?.[0];
         if (file) {
             if (file.size > 5 * 1024 * 1024) {
-                setError('Image size must be less than 5MB');
+                setToast({ message: 'Image size must be less than 5MB', type: 'error' });
                 return;
             }
 
@@ -157,7 +165,7 @@ export default function NewRestaurantPage() {
 
                 if (uploadError) {
                     console.error('Upload error:', uploadError);
-                    setError(`Menu upload failed: ${uploadError.message}. Continuing without image.`);
+                    setToast({ message: `Menu upload failed: ${uploadError.message}. Continuing without image.`, type: 'warning' });
                 } else {
                     const { data: urlData } = supabase.storage
                         .from('restaurant-menus')
@@ -193,6 +201,13 @@ export default function NewRestaurantPage() {
                 throw new Error(data.error || 'Failed to create credentials');
             }
 
+            // Show feedback based on email status
+            if (data.emailSent) {
+                setToast({ message: 'Credentials created and emailed to restaurant! 📧', type: 'success' });
+            } else {
+                setToast({ message: 'Credentials created, but email failed to send. Warnings logged. ⚠️', type: 'warning' });
+            }
+
             setCredentials({
                 email: data.email,
                 password: data.temporaryPassword,
@@ -204,6 +219,7 @@ export default function NewRestaurantPage() {
         } catch (err: unknown) {
             const errorMessage = err instanceof Error ? err.message : 'An error occurred';
             setError(errorMessage);
+            setToast({ message: errorMessage, type: 'error' });
         } finally {
             setCreating(false);
         }
@@ -215,6 +231,7 @@ export default function NewRestaurantPage() {
         const text = `Restaurant: ${credentials.restaurantName}\nEmail: ${credentials.email}\nTemporary Password: ${credentials.password}`;
         navigator.clipboard.writeText(text);
         setCopied(true);
+        setToast({ message: 'Credentials copied to clipboard', type: 'success' });
         setTimeout(() => setCopied(false), 2000);
     };
 
@@ -235,7 +252,26 @@ export default function NewRestaurantPage() {
     // Success state - show credentials
     if (credentials) {
         return (
-            <div className="max-w-2xl mx-auto">
+            <div className="max-w-2xl mx-auto relative">
+                <AnimatePresence>
+                    {toast && (
+                        <motion.div
+                            initial={{ opacity: 0, y: -20, x: '-50%' }}
+                            animate={{ opacity: 1, y: 0, x: '-50%' }}
+                            exit={{ opacity: 0, y: -20, x: '-50%' }}
+                            className={`fixed top-6 left-1/2 z-[100] px-6 py-3 rounded-full shadow-lg border backdrop-blur-md flex items-center gap-3 font-medium whitespace-nowrap
+                            ${toast.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' :
+                                    toast.type === 'warning' ? 'bg-amber-500/10 border-amber-500/20 text-amber-500' :
+                                        'bg-red-500/10 border-red-500/20 text-red-500'}`}
+                        >
+                            {toast.type === 'success' ? <CheckCircle className="w-5 h-5" /> :
+                                toast.type === 'warning' ? <Store className="w-5 h-5" /> :
+                                    <XCircle className="w-5 h-5" />}
+                            {toast.message}
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
                 <motion.div
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
@@ -292,7 +328,26 @@ export default function NewRestaurantPage() {
     }
 
     return (
-        <div className="max-w-4xl mx-auto pb-32">
+        <div className="max-w-4xl mx-auto pb-32 relative">
+            <AnimatePresence>
+                {toast && (
+                    <motion.div
+                        initial={{ opacity: 0, y: -20, x: '-50%' }}
+                        animate={{ opacity: 1, y: 0, x: '-50%' }}
+                        exit={{ opacity: 0, y: -20, x: '-50%' }}
+                        className={`fixed top-6 left-1/2 z-[100] px-6 py-3 rounded-full shadow-lg border backdrop-blur-md flex items-center gap-3 font-medium whitespace-nowrap
+                        ${toast.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' :
+                                toast.type === 'warning' ? 'bg-amber-500/10 border-amber-500/20 text-amber-500' :
+                                    'bg-red-500/10 border-red-500/20 text-red-500'}`}
+                    >
+                        {toast.type === 'success' ? <CheckCircle className="w-5 h-5" /> :
+                            toast.type === 'warning' ? <Store className="w-5 h-5" /> :
+                                <XCircle className="w-5 h-5" />}
+                        {toast.message}
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
             {/* Header */}
             <div className="mb-8">
                 <Link

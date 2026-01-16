@@ -4,9 +4,14 @@ import { sendEmail, SENDERS } from '@/lib/email';
 import { getApprovalEmail } from '@/lib/email-templates';
 
 export async function POST(request: Request) {
+    console.log('🚀 Approval API Called');
+    console.log('ZEPTOMAIL_API_KEY present:', !!process.env.ZEPTOMAIL_API_KEY);
+
     try {
         const body = await request.json();
         const { restaurantId, status } = body;
+
+        console.log(`Processing status change: ${restaurantId} -> ${status}`);
 
         if (!restaurantId || !status) {
             return NextResponse.json(
@@ -27,6 +32,7 @@ export async function POST(request: Request) {
         const { data: { user } } = await supabase.auth.getUser();
 
         if (!user) {
+            console.warn('Unauthorized access attempt');
             return NextResponse.json(
                 { error: 'Unauthorized' },
                 { status: 401 }
@@ -42,6 +48,7 @@ export async function POST(request: Request) {
             .single();
 
         if (!adminData) {
+            console.warn('User is not an active admin');
             return NextResponse.json(
                 { error: 'Admin privileges required' },
                 { status: 403 }
@@ -58,6 +65,8 @@ export async function POST(request: Request) {
             .eq('id', restaurantId)
             .single();
 
+        console.log('Restaurant details found:', restaurant ? 'Yes' : 'No', restaurant?.email);
+
         const { error: updateError } = await adminClient
             .from('Resturant Onboarding')
             .update({ status: status })
@@ -73,6 +82,7 @@ export async function POST(request: Request) {
 
         // Send approval email if status is approved
         if (status === 'approved' && restaurant) {
+            console.log('📧 Attempting to send approval email...');
             const emailResult = await sendEmail({
                 to: [{ email: restaurant.email, name: restaurant.contact_person }],
                 from: SENDERS.onboarding,
@@ -81,9 +91,13 @@ export async function POST(request: Request) {
             });
 
             if (!emailResult.success) {
-                console.error('Failed to send approval email:', emailResult.error);
+                console.error('❌ Failed to send approval email:', emailResult.error);
                 // Don't fail the request, just log the error
+            } else {
+                console.log('✅ Approval email sent successfully');
             }
+        } else {
+            console.log('Skipping email:', { status, hasRestaurant: !!restaurant });
         }
 
         return NextResponse.json({

@@ -8,7 +8,8 @@ import { createClient } from "@/lib/supabase/client";
 
 export default function AdminLoginPage() {
   const router = useRouter();
-  const supabase = createClient();
+  // Use useState to ensure client is only created once and persists across re-renders
+  const [supabase] = useState(() => createClient());
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -21,12 +22,30 @@ export default function AdminLoginPage() {
     setError(null);
 
     try {
-      const { data, error: authError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+      // Use direct Supabase REST API to bypass the client's lock mechanism
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/token?grant_type=password`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+          },
+          body: JSON.stringify({ email, password }),
+        }
+      );
 
-      if (authError) throw authError;
+      const authData = await response.json();
+
+      if (!response.ok) {
+        throw new Error(authData.error_description || authData.message || 'Login failed');
+      }
+
+      // Set the session on the Supabase client
+      await supabase.auth.setSession({
+        access_token: authData.access_token,
+        refresh_token: authData.refresh_token,
+      });
 
       // Check if user is an admin (case-insensitive email match)
       const { data: adminData, error: adminError } = await supabase
@@ -53,13 +72,16 @@ export default function AdminLoginPage() {
       }
 
       // Check if admin needs to change password
-      // Only redirect if explicitly true (not null or false)
       if (adminData.must_change_password === true) {
         router.push('/change-password');
       } else {
         router.push('/dashboard');
       }
     } catch (err: unknown) {
+      // Silently ignore AbortError from background processes
+      if (err instanceof Error && err.name === 'AbortError') {
+        return;
+      }
       const errorMessage = err instanceof Error ? err.message : 'Login failed';
       setError(errorMessage);
     } finally {
