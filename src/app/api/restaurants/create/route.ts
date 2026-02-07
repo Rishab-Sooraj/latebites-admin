@@ -57,13 +57,18 @@ export async function POST(request: Request) {
             );
         }
 
-        // Get admin details
-        const { data: adminData } = await supabase
+        // Use admin client to check admin table (bypasses RLS)
+        const adminClient = createAdminClient();
+
+        // Get admin details using admin client to bypass RLS
+        const { data: adminData, error: adminError } = await adminClient
             .from('admins')
             .select('id, name, email')
             .ilike('email', user.email || '')
             .eq('is_active', true)
             .single();
+
+        console.log('Admin check:', { userEmail: user.email, adminData, adminError });
 
         if (!adminData) {
             return NextResponse.json(
@@ -73,7 +78,6 @@ export async function POST(request: Request) {
         }
 
         // Check if email already has auth user
-        const adminClient = createAdminClient();
 
         // First check if user already exists in auth
         const { data: existingUsers } = await adminClient.auth.admin.listUsers();

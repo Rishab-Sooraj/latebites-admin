@@ -21,7 +21,10 @@ import {
     AlertCircle,
     Loader2,
     Package,
-    ClipboardList
+    ClipboardList,
+    ShoppingBag,
+    MessageCircle,
+    Trash2
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -50,7 +53,10 @@ const getNavItems = (role: string) => {
         { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
         { href: '/dashboard/restaurants', icon: Store, label: 'Restaurants' },
         { href: '/dashboard/onboarding', icon: ClipboardList, label: 'Onboarding' },
+        { href: '/dashboard/orders', icon: ShoppingBag, label: 'Orders' },
         { href: '/dashboard/customers', icon: Users, label: 'Customers' },
+        { href: '/dashboard/support', icon: MessageCircle, label: 'Support' },
+        { href: '/dashboard/cleanup', icon: Trash2, label: 'Cleanup' },
     ];
 
     // Only super_admin can manage admins
@@ -100,51 +106,20 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     const performSearch = async (query: string) => {
         setSearchLoading(true);
         try {
-            const results: SearchResult[] = [];
+            const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
 
-            // Search orders by ID (partial match)
-            const { data: orders } = await supabase
-                .from('orders')
-                .select('*, customers(name, email, phone)')
-                .or(`id.ilike.%${query}%`)
-                .limit(5);
-
-            if (orders) {
-                orders.forEach(order => {
-                    results.push({
-                        type: 'order',
-                        id: order.id,
-                        title: `Order #${order.id.substring(0, 8)}...`,
-                        subtitle: order.customers?.name || 'Unknown Customer',
-                        status: order.status,
-                        data: order,
-                    });
-                });
+            if (!response.ok) {
+                throw new Error('Search failed');
             }
 
-            // Search customers by email or phone
-            const { data: customers } = await supabase
-                .from('customers')
-                .select('*')
-                .or(`email.ilike.%${query}%,phone.ilike.%${query}%,name.ilike.%${query}%`)
-                .limit(5);
-
-            if (customers) {
-                customers.forEach(customer => {
-                    results.push({
-                        type: 'customer',
-                        id: customer.id,
-                        title: customer.name || 'No Name',
-                        subtitle: customer.email || customer.phone || '',
-                        data: customer,
-                    });
-                });
-            }
+            const results = await response.json();
 
             setSearchResults(results);
             setShowSearchResults(results.length > 0);
         } catch (error) {
             console.error('Search error:', error);
+            setSearchResults([]);
+            setShowSearchResults(false);
         } finally {
             setSearchLoading(false);
         }
@@ -180,6 +155,10 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             }
 
             setAdmin(adminData);
+            // Store role in localStorage for child components
+            if (typeof window !== 'undefined') {
+                localStorage.setItem('adminRole', adminData.role);
+            }
         } catch {
             router.push('/');
         } finally {

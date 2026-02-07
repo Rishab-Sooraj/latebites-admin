@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic';
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Users, Mail, Phone, Calendar, Search, X, Package, Clock, MapPin, IndianRupee, ChevronRight, ArrowLeft, Store, CheckCircle, XCircle, AlertCircle } from "lucide-react";
+import { Users, Mail, Phone, Calendar, Search, X, Package, Clock, MapPin, IndianRupee, ChevronRight, ArrowLeft, Store, CheckCircle, XCircle, AlertCircle, Eye, EyeOff, Lock, Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
 interface Customer {
@@ -46,6 +46,7 @@ export default function CustomersPage() {
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState("");
+    const [adminRole, setAdminRole] = useState<string>('admin');
 
     // Customer detail modal
     const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -55,19 +56,41 @@ export default function CustomersPage() {
     // Order detail view
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
 
+    // OTP visibility state
+    const [showOtp, setShowOtp] = useState(false);
+    const [showPasswordModal, setShowPasswordModal] = useState(false);
+    const [password, setPassword] = useState("");
+    const [passwordError, setPasswordError] = useState("");
+    const [verifyingPassword, setVerifyingPassword] = useState(false);
+
     useEffect(() => {
         fetchCustomers();
+        fetchAdminRole();
     }, []);
+
+    const fetchAdminRole = async () => {
+        try {
+            // Read from localStorage (set by layout)
+            if (typeof window !== 'undefined') {
+                const storedRole = localStorage.getItem('adminRole');
+                if (storedRole) {
+                    setAdminRole(storedRole);
+                }
+            }
+        } catch (error) {
+            console.error('Error fetching admin role:', error);
+        }
+    };
 
     const fetchCustomers = async () => {
         try {
-            const { data, error } = await supabase
-                .from('customers')
-                .select('*')
-                .order('created_at', { ascending: false })
-                .limit(100);
+            const response = await fetch('/api/customers');
 
-            if (error) throw error;
+            if (!response.ok) {
+                throw new Error('Failed to fetch customers');
+            }
+
+            const data = await response.json();
             setCustomers(data || []);
         } catch (error) {
             console.error('Error fetching customers:', error);
@@ -79,17 +102,13 @@ export default function CustomersPage() {
     const fetchCustomerOrders = async (customerId: string) => {
         setLoadingOrders(true);
         try {
-            const { data, error } = await supabase
-                .from('orders')
-                .select(`
-                    *,
-                    rescue_bags (id, title, description, original_price, discounted_price, pickup_start_time, pickup_end_time),
-                    restaurant_onboarding (id, name, address)
-                `)
-                .eq('customer_id', customerId)
-                .order('created_at', { ascending: false });
+            const response = await fetch(`/api/customers/${customerId}/orders`);
 
-            if (error) throw error;
+            if (!response.ok) {
+                throw new Error('Failed to fetch orders');
+            }
+
+            const data = await response.json();
             setCustomerOrders(data || []);
         } catch (error) {
             console.error('Error fetching orders:', error);
@@ -102,17 +121,61 @@ export default function CustomersPage() {
     const handleCustomerClick = (customer: Customer) => {
         setSelectedCustomer(customer);
         setSelectedOrder(null);
+        setShowOtp(false);
         fetchCustomerOrders(customer.id);
     };
 
     const handleOrderClick = (order: Order) => {
         setSelectedOrder(order);
+        setShowOtp(false); // Reset OTP visibility when changing orders
     };
 
     const closeModal = () => {
         setSelectedCustomer(null);
         setSelectedOrder(null);
         setCustomerOrders([]);
+        setShowOtp(false);
+        setPassword("");
+        setPasswordError("");
+    };
+
+    const handleRevealOtp = () => {
+        setShowPasswordModal(true);
+        setPassword("");
+        setPasswordError("");
+    };
+
+    const verifyPassword = async () => {
+        setVerifyingPassword(true);
+        setPasswordError("");
+
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user?.email) {
+                setPasswordError("User not found");
+                return;
+            }
+
+            // Try to sign in with the password to verify
+            const { error } = await supabase.auth.signInWithPassword({
+                email: user.email,
+                password: password
+            });
+
+            if (error) {
+                setPasswordError("Incorrect password");
+                return;
+            }
+
+            // Password verified - show OTP
+            setShowOtp(true);
+            setShowPasswordModal(false);
+            setPassword("");
+        } catch (error) {
+            setPasswordError("Verification failed");
+        } finally {
+            setVerifyingPassword(false);
+        }
     };
 
     const getStatusColor = (status: string) => {
@@ -376,11 +439,39 @@ export default function CustomersPage() {
                                             </div>
                                         </div>
 
-                                        {/* OTP */}
-                                        <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-4">
-                                            <p className="text-xs uppercase tracking-widest text-amber-500 mb-2">Pickup OTP</p>
-                                            <p className="text-3xl font-mono font-bold text-white tracking-widest">{selectedOrder.pickup_otp || '----'}</p>
-                                        </div>
+                                        {/* OTP - Only visible to super_admin with password verification */}
+                                        {adminRole === 'super_admin' && (
+                                            <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-4">
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <p className="text-xs uppercase tracking-widest text-amber-500">Pickup OTP</p>
+                                                    {!showOtp ? (
+                                                        <button
+                                                            onClick={handleRevealOtp}
+                                                            className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-500 rounded-lg text-sm transition-colors"
+                                                        >
+                                                            <Lock className="w-4 h-4" />
+                                                            <span>Reveal</span>
+                                                        </button>
+                                                    ) : (
+                                                        <button
+                                                            onClick={() => setShowOtp(false)}
+                                                            className="flex items-center gap-2 px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded-lg text-sm transition-colors"
+                                                        >
+                                                            <EyeOff className="w-4 h-4" />
+                                                            <span>Hide</span>
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                {showOtp ? (
+                                                    <p className="text-3xl font-mono font-bold text-white tracking-widest">{selectedOrder.pickup_otp || '----'}</p>
+                                                ) : (
+                                                    <div className="flex items-center gap-2">
+                                                        <Eye className="w-5 h-5 text-zinc-500" />
+                                                        <p className="text-xl font-mono text-zinc-500 tracking-widest">• • • •</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
                                 ) : (
                                     /* Orders List View */
@@ -442,6 +533,84 @@ export default function CustomersPage() {
                                         )}
                                     </div>
                                 )}
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* Password Verification Modal */}
+            <AnimatePresence>
+                {showPasswordModal && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4"
+                        onClick={() => setShowPasswordModal(false)}
+                    >
+                        <motion.div
+                            initial={{ scale: 0.95, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.95, opacity: 0 }}
+                            className="bg-zinc-900 border border-zinc-800 rounded-xl w-full max-w-md p-6"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="flex items-center gap-3 mb-6">
+                                <div className="w-12 h-12 bg-amber-500/10 rounded-lg flex items-center justify-center">
+                                    <Lock className="w-6 h-6 text-amber-500" />
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-semibold text-white">Verify Identity</h3>
+                                    <p className="text-sm text-zinc-500">Enter your password to reveal OTP</p>
+                                </div>
+                            </div>
+
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm text-zinc-400 mb-2">Password</label>
+                                    <input
+                                        type="password"
+                                        value={password}
+                                        onChange={(e) => setPassword(e.target.value)}
+                                        onKeyDown={(e) => e.key === 'Enter' && verifyPassword()}
+                                        placeholder="Enter your password"
+                                        className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500/50 transition-colors"
+                                        autoFocus
+                                    />
+                                    {passwordError && (
+                                        <p className="text-red-500 text-sm mt-2 flex items-center gap-2">
+                                            <AlertCircle className="w-4 h-4" />
+                                            {passwordError}
+                                        </p>
+                                    )}
+                                </div>
+
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={() => setShowPasswordModal(false)}
+                                        className="flex-1 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg font-medium transition-colors"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={verifyPassword}
+                                        disabled={!password || verifyingPassword}
+                                        className="flex-1 px-4 py-3 bg-amber-500 hover:bg-amber-400 disabled:bg-amber-500/50 disabled:cursor-not-allowed text-black rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                                    >
+                                        {verifyingPassword ? (
+                                            <>
+                                                <Loader2 className="w-4 h-4 animate-spin" />
+                                                Verifying...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Eye className="w-4 h-4" />
+                                                Reveal OTP
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
                             </div>
                         </motion.div>
                     </motion.div>

@@ -31,17 +31,19 @@ export default function AdminDashboard() {
 
     const fetchStats = async () => {
         try {
-            const [restaurantsRes, ordersRes, customersRes] = await Promise.all([
-                supabase.from('restaurants').select('id', { count: 'exact', head: true }),
-                supabase.from('orders').select('id', { count: 'exact', head: true }),
-                supabase.from('customers').select('id', { count: 'exact', head: true }),
-            ]);
+            const response = await fetch('/api/dashboard/stats');
+
+            if (!response.ok) {
+                throw new Error('Failed to fetch stats');
+            }
+
+            const data = await response.json();
 
             setStats({
-                totalRestaurants: restaurantsRes.count || 0,
-                totalOrders: ordersRes.count || 0,
-                totalCustomers: customersRes.count || 0,
-                pendingApplications: 0,
+                totalRestaurants: data.restaurants,
+                totalOrders: data.orders,
+                totalCustomers: data.customers,
+                pendingApplications: data.pendingApplications,
             });
         } catch (error) {
             console.error('Error fetching stats:', error);

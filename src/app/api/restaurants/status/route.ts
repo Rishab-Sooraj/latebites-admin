@@ -39,8 +39,11 @@ export async function POST(request: Request) {
             );
         }
 
-        // Verify user is an admin
-        const { data: adminData } = await supabase
+        // Use admin client to bypass RLS for admin check
+        const adminClient = createAdminClient();
+
+        // Verify user is an admin (use admin client to bypass RLS)
+        const { data: adminData } = await adminClient
             .from('admins')
             .select('id')
             .ilike('email', user.email || '')
@@ -48,15 +51,12 @@ export async function POST(request: Request) {
             .single();
 
         if (!adminData) {
-            console.warn('User is not an active admin');
+            console.warn('User is not an active admin:', user.email);
             return NextResponse.json(
                 { error: 'Admin privileges required' },
                 { status: 403 }
             );
         }
-
-        // Use admin client to bypass RLS
-        const adminClient = createAdminClient();
 
         // Get restaurant details before updating
         const { data: restaurant } = await adminClient

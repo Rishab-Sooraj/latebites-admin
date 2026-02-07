@@ -261,11 +261,17 @@ export default function RestaurantsPage() {
                                     )}
                                     {/* Active Badge */}
                                     <span className={`px-2 py-1 text-xs font-medium rounded flex items-center gap-1 ${restaurant.is_active
-                                            ? 'bg-emerald-500/10 text-emerald-500'
-                                            : 'bg-red-500/10 text-red-500'
+                                        ? 'bg-emerald-500/10 text-emerald-500'
+                                        : (restaurant.strike_count || 0) >= 3
+                                            ? 'bg-red-500/10 text-red-500'
+                                            : 'bg-zinc-500/10 text-zinc-400'
                                         }`}>
                                         <CheckCircle className="w-3 h-3" />
-                                        {restaurant.is_active ? 'Active' : 'Suspended'}
+                                        {restaurant.is_active
+                                            ? 'Active'
+                                            : (restaurant.strike_count || 0) >= 3
+                                                ? 'Suspended'
+                                                : 'Offline'}
                                     </span>
                                 </div>
                             </div>
@@ -299,10 +305,14 @@ export default function RestaurantsPage() {
                                         : `Added ${new Date(restaurant.created_at).toLocaleDateString()}`
                                     }
                                 </span>
-                                <div className="flex items-center gap-1 text-sm text-amber-500">
+                                <Link
+                                    href={`/dashboard/restaurants/${restaurant.id}`}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="flex items-center gap-1 text-sm text-amber-500 hover:text-amber-400 transition-colors"
+                                >
                                     <Eye className="w-4 h-4" />
-                                    View
-                                </div>
+                                    View Details
+                                </Link>
                             </div>
                         </motion.div>
                     ))}
@@ -366,12 +376,20 @@ export default function RestaurantsPage() {
                                             <p className="text-zinc-500">{selectedRestaurant.owner_name}</p>
                                         </div>
                                     </div>
-                                    <button
-                                        onClick={() => setSelectedRestaurant(null)}
-                                        className="p-2 hover:bg-zinc-800 rounded-lg transition-colors"
-                                    >
-                                        <X className="w-5 h-5 text-zinc-400" />
-                                    </button>
+                                    <div className="flex items-center gap-2">
+                                        <Link
+                                            href={`/dashboard/restaurants/${selectedRestaurant.id}`}
+                                            className="px-3 py-1.5 bg-amber-500/10 text-amber-500 text-sm font-medium rounded-lg hover:bg-amber-500/20 transition-colors"
+                                        >
+                                            View Full Details
+                                        </Link>
+                                        <button
+                                            onClick={() => setSelectedRestaurant(null)}
+                                            className="p-2 hover:bg-zinc-800 rounded-lg transition-colors"
+                                        >
+                                            <X className="w-5 h-5 text-zinc-400" />
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
 
