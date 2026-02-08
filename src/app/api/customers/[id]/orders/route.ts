@@ -31,7 +31,12 @@ export async function GET(
                 created_at,
                 pickup_time,
                 rescue_bag_id,
-                restaurant_id
+                restaurant_id,
+                payment_method,
+                payment_status,
+                razorpay_payment_id,
+                refund_status,
+                refund_amount
             `)
             .eq('customer_id', customerId)
             .order('created_at', { ascending: false });
@@ -68,6 +73,11 @@ export async function GET(
                     pickup_otp: order.pickup_otp,
                     created_at: order.created_at,
                     updated_at: order.created_at,
+                    payment_method: order.payment_method,
+                    payment_status: order.payment_status,
+                    razorpay_payment_id: order.razorpay_payment_id,
+                    refund_status: order.refund_status,
+                    refund_amount: order.refund_amount,
                     rescue_bags: rescueBag ? {
                         id: rescueBag.id,
                         title: rescueBag.title,

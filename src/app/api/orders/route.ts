@@ -29,11 +29,15 @@ export async function GET(request: Request) {
                 pickup_time,
                 rescue_bag_id,
                 customer_id,
-                restaurant_id
+                restaurant_id,
+                payment_method,
+                payment_status,
+                razorpay_payment_id,
+                refund_status,
+                refund_amount
             `)
-            .gte('created_at', startOfDay.toISOString())
-            .lte('created_at', endOfDay.toISOString())
-            .order('created_at', { ascending: false });
+            .order('created_at', { ascending: false })
+            .limit(100);
 
         if (error) {
             console.error('Error fetching orders:', error);
@@ -60,7 +64,7 @@ export async function GET(request: Request) {
                 // Fetch customer
                 const { data: customer } = await supabase
                     .from('customers')
-                    .select('name, phone')
+                    .select('name, phone, email')
                     .eq('id', order.customer_id)
                     .single();
 
@@ -70,8 +74,14 @@ export async function GET(request: Request) {
                     restaurant_name: restaurant?.name || 'Restaurant',
                     customer_name: customer?.name || 'Unknown',
                     customer_phone: customer?.phone || '',
+                    customer_email: customer?.email || '',
                     status: order.status,
                     total_amount: order.total_price,
+                    payment_method: order.payment_method,
+                    payment_status: order.payment_status,
+                    razorpay_payment_id: order.razorpay_payment_id,
+                    refund_status: order.refund_status,
+                    refund_amount: order.refund_amount,
                     created_at: order.created_at,
                     pickup_time: order.pickup_time
                 };
