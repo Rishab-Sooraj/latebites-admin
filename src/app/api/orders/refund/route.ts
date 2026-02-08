@@ -7,10 +7,16 @@ const supabase = createClient(
     process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const razorpay = new Razorpay({
-    key_id: process.env.RAZORPAY_KEY_ID!,
-    key_secret: process.env.RAZORPAY_KEY_SECRET!,
-});
+// Lazy-load Razorpay to avoid build-time initialization
+const getRazorpay = () => {
+    if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+        throw new Error('Razorpay credentials not configured');
+    }
+    return new Razorpay({
+        key_id: process.env.RAZORPAY_KEY_ID,
+        key_secret: process.env.RAZORPAY_KEY_SECRET,
+    });
+};
 
 export async function POST(request: NextRequest) {
     try {
@@ -63,11 +69,11 @@ export async function POST(request: NextRequest) {
         if (!paymentId && order.razorpay_order_id) {
             console.log('🔍 No payment ID found, fetching from Razorpay order:', order.razorpay_order_id);
             try {
-                const razorpayOrder = await razorpay.orders.fetch(order.razorpay_order_id);
+                const razorpayOrder = await getRazorpay().orders.fetch(order.razorpay_order_id);
                 console.log('📦 Razorpay order status:', razorpayOrder.status);
 
                 // Fetch payments for this order
-                const payments = await razorpay.orders.fetchPayments(order.razorpay_order_id);
+                const payments = await getRazorpay().orders.fetchPayments(order.razorpay_order_id);
                 console.log('💳 Payments found:', payments.count);
 
                 if (payments.items && payments.items.length > 0) {
@@ -146,7 +152,7 @@ export async function POST(request: NextRequest) {
 
         try {
             // Process refund through Razorpay
-            const refund = await razorpay.payments.refund(paymentId, {
+            const refund = await getRazorpay().payments.refund(paymentId, {
                 amount: refundAmountPaise,
                 speed: 'normal', // 'normal' for 5-7 days, 'optimum' for instant if eligible
                 notes: {
@@ -261,7 +267,7 @@ export async function GET(request: NextRequest) {
         if (refundId) {
             // Get specific refund status from Razorpay
             try {
-                const refund = await razorpay.refunds.fetch(refundId);
+                const refund = await getRazorpay().refunds.fetch(refundId);
                 return NextResponse.json({ refund });
             } catch (error: any) {
                 return NextResponse.json(
